@@ -2,6 +2,7 @@
 
 #include <string>
 #include <sstream>
+#include <map>
 
 #include <DualSenseWindows/IO.h>
 #include <DualSenseWindows/Device.h>
@@ -41,6 +42,23 @@ class Console {
 	private:
 		HANDLE consoleHandle;
 };
+
+template<typename T> bool arrayEquals(T* array1, size_t size1, T* array2, size_t size2) {
+	if (size1 != size2) return false;
+	for (size_t i = 0; i < size1; ++i) {
+		if (array1[i] != array2[i]) return false;
+	}
+	return true;
+}
+template<typename T> std::map<size_t, T> arrayDiscrepencies(T* array1, size_t size1, T* array2, size_t size2, wstrBuilder& builder) {
+	std::map<size_t, T> map;
+	for (size_t i = 0; i < size1; ++i) {
+		if (array1[i] != array2[i]) {
+			map[i] = array1[i];
+		}
+	}
+	return map;
+}
 
 INT WINAPI wWinMain(HINSTANCE _In_ hInstance, HINSTANCE _In_opt_ hPrevInstance, LPWSTR _In_ cmdLine, INT _In_ nCmdShow) {
 	// Console
@@ -86,15 +104,34 @@ INT WINAPI wWinMain(HINSTANCE _In_ hInstance, HINSTANCE _In_opt_ hPrevInstance, 
 		DS5W::DS5InputState inState;
 
 		// Application infinity loop
-		bool keepRunning = false;
+		bool keepRunning = true;
+		unsigned short inputReportByteLength = con._internal.inputReportByteLength;
+		unsigned char* hidBuffer = new unsigned char[inputReportByteLength];	//To replace with input report byte length
+		unsigned int updateNumber = 0;
 		while (keepRunning) {
 			// Get input state
 			if (DS5W_SUCCESS(DS5W::getDeviceInputState(&con, &inState))) {
-				if (inState.headPhoneConnected) {
-					console.writeLine(L"Connected");
-				}
-				else {
-					console.writeLine(L"Not Connected");
+				std::map<size_t, unsigned char> map = arrayDiscrepencies(con._internal.hidBuffer, (size_t)con._internal.inputReportByteLength, hidBuffer, (size_t)inputReportByteLength, builder);
+				if (map.size() > 1) {	//7 will always change
+					builder << "Update number " << updateNumber;
+					console.writeLine(builder);
+					builder << "Discrepencies: ";
+					for (std::map<size_t, unsigned char>::const_iterator it = map.cbegin(); it != map.cend(); ++it) {
+						if (it->first != (size_t)7) {
+							builder << "(" << it->first << "," << it->second << ") ";
+						}
+					}
+					console.writeLine(builder);
+					if (inState.headPhoneConnected) {
+						console.writeLine(L"Connected");
+					}
+					else {
+						console.writeLine(L"Not Connected");
+					}
+
+					++updateNumber;
+					memcpy(hidBuffer, con._internal.hidBuffer, inputReportByteLength);
+					//keepRunning = false;
 				}
 			}
 			else {
@@ -106,6 +143,7 @@ INT WINAPI wWinMain(HINSTANCE _In_ hInstance, HINSTANCE _In_opt_ hPrevInstance, 
 
 		// Free state
 		DS5W::freeDeviceContext(&con);
+		delete hidBuffer;
 	}
 	else {
 		console.writeLine(L"Failed to connect to controler!");
